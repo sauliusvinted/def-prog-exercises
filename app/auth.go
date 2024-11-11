@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"io"
 	"log"
@@ -10,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/empijei/def-prog-exercises/safesql"
+	sql "github.com/empijei/def-prog-exercises/safesql"
+	"github.com/empijei/def-prog-exercises/safesql/legacyconversions"
 
 	"embed"
 )
@@ -50,7 +53,7 @@ func (ah *AuthHandler) IsLogged(r *http.Request) bool {
 }
 
 func (ah *AuthHandler) getUserCount(ctx context.Context) (int, error) {
-	rows, err := ah.db.QueryContext(ctx, `SELECT COUNT(*) FROM users`)
+	rows, err := ah.db.QueryContext(ctx, legacyconversions.RiskilyAssumeTrustedSQL(`SELECT COUNT(*) FROM users`))
 	if err != nil {
 		return 0, err
 	}
@@ -77,7 +80,7 @@ func (ah *AuthHandler) createDefault(ctx context.Context) error {
 	}
 	log.Println("Default users not found, initializing...")
 	for _, u := range defaultUsers {
-		_, err := ah.db.ExecContext(ctx, `INSERT INTO users(name, password, privileges) VALUES('`+u.Name+`','`+u.password+`','`+u.Privileges+`')`)
+		_, err := ah.db.ExecContext(ctx, legacyconversions.RiskilyAssumeTrustedSQL(`INSERT INTO users(name, password, privileges) VALUES('`+u.Name+`','`+u.password+`','`+u.Privileges+`')`))
 		if err != nil {
 			return err
 		}
@@ -87,8 +90,8 @@ func (ah *AuthHandler) createDefault(ctx context.Context) error {
 }
 
 func (ah *AuthHandler) initialize(ctx context.Context) error {
-	_, err := ah.db.ExecContext(ctx, `
-		CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, password TEXT, privileges TEXT)`)
+	_, err := ah.db.ExecContext(ctx, legacyconversions.RiskilyAssumeTrustedSQL(`
+		CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, password TEXT, privileges TEXT)`))
 	if err != nil {
 		return err
 	}
@@ -121,7 +124,7 @@ func (ah *AuthHandler) getUser(r *http.Request) (*user, error) {
 	// BUT PLEASE, PLEASE, PLEASE never rely on client-provided
 	// data to perform auth checks unless it's signed and you validated
 	// the sgnature.
-	rows, err := ah.db.QueryContext(r.Context(), `SELECT * FROM users WHERE id=`+c.Value)
+	rows, err := ah.db.QueryContext(r.Context(), legacyconversions.RiskilyAssumeTrustedSQL(`SELECT * FROM users WHERE id=`+c.Value))
 	if err != nil || !rows.Next() {
 		return nil, err
 	}
@@ -158,8 +161,8 @@ func (ah *AuthHandler) login(w http.ResponseWriter, id int) {
 
 func Auth(ctx context.Context) *AuthHandler {
 	sm := http.NewServeMux()
-	db := must(sql.Open("sqlite", "./users.db"))
-	ah := &AuthHandler{db, sm}
+	db := must(sql.Open(legacyconversions.RiskilyAssumeTrustedSQL("sqlite"), legacyconversions.RiskilyAssumeTrustedSQL("./users.db")))
+	ah := &AuthHandler{safesql.NewDB(db), sm}
 	if err := ah.initialize(ctx); err != nil {
 		log.Fatalf("Cannot initialize auth: %v", err)
 	}
